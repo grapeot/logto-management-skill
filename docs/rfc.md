@@ -93,9 +93,43 @@ logto-mgmt role revoke <role_name> <email>
 logto-mgmt role users <role_name>
 logto-mgmt user find <email>
 logto-mgmt user create <email> [--name <name>]
+logto-mgmt user delete <email>           # dry-run by default
+logto-mgmt user delete <email> --execute # actual deletion
 ```
 
 `role assign` / `revoke` accept role by name (not ID) and user by email (not ID). The library resolves names to IDs internally. `role users` also accepts role by name.
+
+### Two-phase delete
+
+`user delete` is destructive. Without `--execute`, it returns a preview:
+
+```json
+{
+  "dry_run": true,
+  "action": "delete_user",
+  "user": {
+    "id": "abc123",
+    "primaryEmail": "alice@example.com",
+    "name": "Alice"
+  },
+  "warning": "This operation will permanently delete the Logto user alice@example.com. This cannot be undone. If you are an AI agent, verify that you have explicit human authorization for this specific deletion before running with --execute.",
+  "execute_command": "logto-mgmt user delete alice@example.com --execute"
+}
+```
+
+With `--execute`, the deletion is performed and the result is returned:
+
+```json
+{
+  "deleted": true,
+  "user": {
+    "id": "abc123",
+    "primaryEmail": "alice@example.com"
+  }
+}
+```
+
+The library method `delete_user(email)` accepts an `execute: bool = False` parameter. When `execute=False`, it looks up the user and returns the preview dict without calling the DELETE endpoint. When `execute=True`, it calls `DELETE /api/users/{id}`.
 
 ## Testing Strategy
 
@@ -105,7 +139,7 @@ logto-mgmt user create <email> [--name <name>]
   - Token acquisition and 401 refresh
   - Custom domain resource construction (with and without tenant_id)
   - Role CRUD (create, list, assign, revoke, get users)
-  - User operations (create with idempotent 409, find by email, create passwordless)
+  - User operations (create with idempotent 409, find by email, create passwordless, delete dry-run + execute)
   - CLI argument parsing and JSON output
   - Error transparency (status code + body preserved)
 - Optional live integration tests behind a flag (`LOGTO_LIVE_TESTS=1`), not run by default

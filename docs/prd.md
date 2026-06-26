@@ -22,6 +22,7 @@ A CLI and Python library that lets AI agents and humans manage Logto users and r
 | `logto-mgmt role users <role>` | List users who have a given role |
 | `logto-mgmt user find <email>` | Look up a user by email, return full object (including `lastSignInAt`) |
 | `logto-mgmt user create <email> [--name <name>]` | Create a passwordless user |
+| `logto-mgmt user delete <email>` | Delete a user (two-phase: dry-run by default, `--execute` to confirm) |
 
 ### Library-only (not in CLI)
 
@@ -39,6 +40,16 @@ A CLI and Python library that lets AI agents and humans manage Logto users and r
 | `migrate.py` | Bulk migrate users from CSV to Logto |
 | `sync_plan.py` | Incremental sync: diff two CSV exports, plan + execute |
 
+### Two-phase destructive operations
+
+Destructive operations (currently: `user delete`) use a two-phase pattern to prevent accidental data loss, especially when invoked by AI agents:
+
+1. **Dry-run (default)**: Running `logto-mgmt user delete <email>` without `--execute` returns a JSON preview of what would be deleted, plus a natural-language warning telling AI agents to verify they have explicit human authorization before proceeding.
+
+2. **Execute (explicit)**: Running `logto-mgmt user delete <email> --execute` performs the actual deletion.
+
+The warning in dry-run output is plain English, not a code flag. It instructs the AI to reconsider whether a human has authorized this specific destructive action. The AI decides whether to re-run with `--execute`.
+
 ## Success Criteria
 
 1. `logto-mgmt role create/assign/revoke` works against a real Logto tenant
@@ -47,10 +58,11 @@ A CLI and Python library that lets AI agents and humans manage Logto users and r
 4. Credentials resolve via 1Password `op run` (service account or interactive)
 5. All public files contain zero real emails, keys, or tenant IDs
 6. `pytest` passes with mocked HTTP (no live Logto calls required)
+7. `user delete` without `--execute` returns a dry-run preview with AI-facing warning; `--execute` performs the deletion
 
 ## Non-goals
 
 - Not an SSO provider or OIDC client (Logto itself handles that)
 - Not a user migration platform (migration scripts are utilities, not the core product)
 - Not a Logto Console replacement (admin UI stays in Logto's web console)
-- No organization management in v1 (roles are sufficient for guest_pass admin auth)
+- No organization management in v1 (roles are sufficient for admin authorization use cases)

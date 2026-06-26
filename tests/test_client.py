@@ -131,6 +131,49 @@ class TestUsers:
 
         assert result is None
 
+    @patch("logto_management_skill.client.requests")
+    def test_delete_user_dry_run_does_not_call_delete(self, mock_requests):
+        mock_requests.post.return_value = _mock_token_response()
+        user = {"id": "u1", "primaryEmail": "alice@example.com", "name": "Alice"}
+        mock_requests.request.return_value = _mock_response(200, [user])
+
+        client = LogtoClient("https://auth.example.com", "id", "secret", tenant_id="t1")
+        result = client.delete_user("alice@example.com")
+
+        assert result["dry_run"] is True
+        assert result["action"] == "delete_user"
+        assert result["user"] == user
+        assert "--execute" in result["execute_command"]
+        assert mock_requests.request.call_count == 1
+        assert mock_requests.request.call_args[0][0] == "GET"
+
+    @patch("logto_management_skill.client.requests")
+    def test_delete_user_execute_calls_delete(self, mock_requests):
+        mock_requests.post.return_value = _mock_token_response()
+        user = {"id": "u1", "primaryEmail": "alice@example.com"}
+        mock_requests.request.side_effect = [
+            _mock_response(200, [user]),
+            _mock_response(204, text=""),
+        ]
+
+        client = LogtoClient("https://auth.example.com", "id", "secret", tenant_id="t1")
+        result = client.delete_user("alice@example.com", execute=True)
+
+        assert result["deleted"] is True
+        assert result["user"] == user
+        delete_call = mock_requests.request.call_args_list[1]
+        assert delete_call[0][0] == "DELETE"
+        assert delete_call[0][1] == "https://auth.example.com/api/users/u1"
+
+    @patch("logto_management_skill.client.requests")
+    def test_delete_user_not_found(self, mock_requests):
+        mock_requests.post.return_value = _mock_token_response()
+        mock_requests.request.return_value = _mock_response(200, [])
+
+        client = LogtoClient("https://auth.example.com", "id", "secret", tenant_id="t1")
+        with pytest.raises(LogtoAPIError, match="User 'nobody@example.com' not found"):
+            client.delete_user("nobody@example.com", execute=True)
+
 
 # ── Role tests ──────────────────────────────────────────
 

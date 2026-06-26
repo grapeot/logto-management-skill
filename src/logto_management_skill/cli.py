@@ -102,6 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
     user_create.add_argument("email", help="User email")
     user_create.add_argument("--name", "-n", default=None, help="User display name")
 
+    user_delete = user_sub.add_parser(
+        "delete", help="Delete a user by email; dry-run by default"
+    )
+    user_delete.add_argument("email", help="User email")
+    user_delete.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually delete the user. Without this flag, only returns a dry-run preview.",
+    )
+
     return parser
 
 
@@ -127,6 +137,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _run(lambda: client.find_user_by_email(args.email) or {"found": False})
         elif args.user_command == "create":
             return _run(lambda: client.create_user(args.email, args.name))
+        elif args.user_command == "delete":
+            return _run(lambda: client.delete_user(args.email, execute=args.execute))
 
     return 1
 
