@@ -11,12 +11,13 @@ A CLI for managing Logto users and roles via the Logto Management API. Designed 
 
 ## When to Use
 
-Trigger words: "Logto role", "assign Logto role", "Logto user", "create Logto user", "find Logto user", "Logto Management API"
+Trigger words: "Logto role", "assign Logto role", "Logto user", "create Logto user", "find Logto user", "delete Logto user", "Logto Management API"
 
 Typical scenarios:
 - Assigning an admin role to a user in a Logto-backed SSO system
 - Looking up a user's `lastSignInAt` for activity tracking
 - Creating a passwordless user account programmatically
+- Deleting a user after an explicit dry-run review
 - Auditing which users have a specific role
 
 ## Prerequisites
@@ -72,7 +73,15 @@ logto-mgmt user find alice@example.com
 
 # Create a passwordless user
 logto-mgmt user create alice@example.com --name "Alice"
+
+# Preview a destructive user deletion. This does not delete anything.
+logto-mgmt user delete alice@example.com
+
+# Execute the deletion only after explicit authorization.
+logto-mgmt user delete alice@example.com --execute
 ```
+
+`user delete` is dry-run by default. The dry-run output includes a natural-language warning for AI agents and an `execute_command` field. Treat that warning as a required pause point: only run with `--execute` when the human has authorized this exact deletion.
 
 ## Python Library
 
@@ -92,6 +101,10 @@ user = client.create_user("alice@example.com", name="Alice")
 # Find a user (returns None if not found)
 user = client.find_user_by_email("alice@example.com")
 # user["lastSignInAt"] is available for activity tracking
+
+# Delete uses dry-run by default
+preview = client.delete_user("alice@example.com")
+result = client.delete_user("alice@example.com", execute=True)
 
 # Create and assign a role
 role = client.create_role("admin", description="Admin access")
@@ -121,7 +134,7 @@ All HTTP errors preserve the original status code and response body. This is int
 
 ## Installation for AI Agents
 
-If your workspace has `rules/skills/INDEX.md` or a skill discovery file, add an entry pointing to this repo's `docs/skill.md`. The AI agent can then discover and use the CLI by reading the skill file.
+If your workspace has `rules/skills/INDEX.md` or a skill discovery file, add an entry pointing to this repo's `skills/skill.md`. The AI agent can then discover and use the CLI by reading the skill file.
 
 To install:
 

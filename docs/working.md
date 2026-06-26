@@ -15,17 +15,15 @@
 
 ### Logto `lastSignInAt` field semantics (2026-06-26)
 
-Verified by creating a test user (`test-guestpass@example.com`) that never logged in:
+Verified with a newly created test user that never logged in:
 - `lastSignInAt: null` for users who have never signed in
 - `lastSignInAt: <epoch_ms>` for users who have signed in at least once
 - Field is a system field on the user object, readable via `GET /api/users/{id}` or `GET /api/users?search.primaryEmail=...`
 
 This makes it a reliable signal for "has this invitee ever logged in" — useful for reputation/invitation quality tracking in downstream systems.
 
-### Role name: superlinear_admin (2026-06-26)
+### Delete user exposed with two-phase guard (2026-06-26)
 
-The Logto role is named `superlinear_admin` (not `guest_pass_admin`) because it is intended as a general-purpose admin role across Superlinear Academy systems, not specific to guest_pass.
+`DELETE /api/users/{id}` works (returns 204). The CLI now exposes `user delete <email>` with dry-run as the default behavior and `--execute` as the explicit deletion path. The dry-run response includes the full user preview, a natural-language AI warning, and the exact execute command.
 
-### Delete user not exposed in CLI (2026-06-26)
-
-`DELETE /api/users/{id}` works (returns 204), but delete is not exposed as a CLI subcommand. It's a destructive operation that should be intentional. For testing, we called `client._request("DELETE", ...)` directly. If needed in the future, add `user delete <email>` with a confirmation flag.
+This preserves CLI ergonomics for cleanup work while keeping destructive behavior explicit. Tests cover dry-run lookup-only behavior, execute behavior, and not-found errors.

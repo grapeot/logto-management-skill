@@ -54,6 +54,19 @@ class TestCLIParsing:
         assert args.user_command == "create"
         assert args.name == "Alice"
 
+    def test_user_delete_dry_run_default(self):
+        parser = build_parser()
+        args = parser.parse_args(["user", "delete", "alice@example.com"])
+        assert args.user_command == "delete"
+        assert args.email == "alice@example.com"
+        assert args.execute is False
+
+    def test_user_delete_execute(self):
+        parser = build_parser()
+        args = parser.parse_args(["user", "delete", "alice@example.com", "--execute"])
+        assert args.user_command == "delete"
+        assert args.execute is True
+
 
 class TestCLIRun:
     @patch("logto_management_skill.cli.LogtoClient")
@@ -106,6 +119,38 @@ class TestCLIRun:
         exit_code = main(["role", "list"])
 
         assert exit_code == 1
+
+    @patch("logto_management_skill.cli.LogtoClient")
+    @patch.dict("os.environ", {
+        "LOGTO_ENDPOINT": "https://auth.example.com",
+        "LOGTO_APP_ID": "id",
+        "LOGTO_APP_SECRET": "secret",
+        "LOGTO_TENANT_ID": "t1",
+    })
+    def test_user_delete_dry_run_calls_client_without_execute(self, mock_client_class):
+        mock_client = mock_client_class.return_value
+        mock_client.delete_user.return_value = {"dry_run": True}
+
+        exit_code = main(["user", "delete", "alice@example.com"])
+
+        assert exit_code == 0
+        mock_client.delete_user.assert_called_once_with("alice@example.com", execute=False)
+
+    @patch("logto_management_skill.cli.LogtoClient")
+    @patch.dict("os.environ", {
+        "LOGTO_ENDPOINT": "https://auth.example.com",
+        "LOGTO_APP_ID": "id",
+        "LOGTO_APP_SECRET": "secret",
+        "LOGTO_TENANT_ID": "t1",
+    })
+    def test_user_delete_execute_calls_client_with_execute(self, mock_client_class):
+        mock_client = mock_client_class.return_value
+        mock_client.delete_user.return_value = {"deleted": True}
+
+        exit_code = main(["user", "delete", "alice@example.com", "--execute"])
+
+        assert exit_code == 0
+        mock_client.delete_user.assert_called_once_with("alice@example.com", execute=True)
 
     def test_missing_env_vars_exits_1(self):
         with patch.dict("os.environ", {}, clear=True):

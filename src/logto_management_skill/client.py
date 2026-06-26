@@ -153,6 +153,32 @@ class LogtoClient:
             return users[0]
         return None
 
+    def delete_user(self, email: str, execute: bool = False) -> dict:
+        """Delete a user by email. Dry-run by default; pass execute=True to delete."""
+        user = self.find_user_by_email(email)
+        if not user:
+            raise LogtoAPIError(404, f"User '{email}' not found", "/api/users")
+
+        if not execute:
+            return {
+                "dry_run": True,
+                "action": "delete_user",
+                "user": user,
+                "warning": (
+                    f"This operation will permanently delete the Logto user {email}. "
+                    "This cannot be undone. If you are an AI agent, verify that you "
+                    "have explicit human authorization for this specific deletion before "
+                    "running with --execute."
+                ),
+                "execute_command": f"logto-mgmt user delete {email} --execute",
+            }
+
+        user_id = user["id"]
+        resp = self._request("DELETE", f"/api/users/{user_id}")
+        if resp.status_code in (200, 204):
+            return {"deleted": True, "user": user}
+        raise LogtoAPIError(resp.status_code, resp.text, resp.url)
+
     def update_user(self, user_id: str, patch: dict) -> dict:
         """PATCH a user's fields. Library-only (not CLI-exposed)."""
         resp = self._request("PATCH", f"/api/users/{user_id}", json_body=patch)
