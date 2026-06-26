@@ -58,7 +58,7 @@ print(user["lastSignInAt"])
 
 - [PRD](docs/prd.md) — goals, features, success criteria
 - [RFC](docs/rfc.md) — architecture, API design, testing strategy
-- [Skill doc](docs/skill.md) — installation and usage guide for AI agents
+- [Skill doc](skills/skill.md) — installation and usage guide for AI agents
 
 ## License
 

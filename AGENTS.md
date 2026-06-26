@@ -18,7 +18,9 @@ logto_management_skill/
 │   ├── rfc.md
 │   ├── test.md
 │   ├── working.md
-│   └── skill.md
+│   └── test.md
+├── skills/
+│   └── skill.md          # Skill doc for AI agents
 ├── src/
 │   └── logto_management_skill/
 │       ├── __init__.py
