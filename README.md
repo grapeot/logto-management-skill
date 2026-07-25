@@ -1,68 +1,91 @@
 # logto-management-skill
 
-A CLI and Python library for managing Logto users and roles via the Logto Management API. Designed for AI agents and human operators. 1Password-native credential management.
+A safe CLI and Python library for discovering and managing Logto tenant configuration. It is designed for AI agents, emits JSON, and resolves credentials through 1Password before Python starts.
 
-## Features
+## Why This Tool Exists
 
-- **Role management**: create, list, assign, revoke, and audit roles
-- **User management**: find users by email, create passwordless users, delete users with a dry-run guard
-- **Token management**: automatic M2M token acquisition with 401 auto-refresh
-- **1Password integration**: credentials resolved via `op run` (service account or interactive Touch ID)
-- **AI-agent friendly**: JSON output, transparent error messages with HTTP status codes
+Logto endpoint paths are not reliably guessable. `logto-mgmt api search` reads the tenant's own `/api/swagger.json`, so agents can discover the installed API surface instead of inventing paths.
+
+Tenant-wide writes need stronger protection than ordinary CRUD:
+
+- Email templates, sign-in experience, and account center writes always read the complete object, deep-copy it, modify one part, save a local backup, PATCH, and re-read to verify.
+- Direct writes to those protected endpoints are blocked in `client.request()` and `api call`, so callers cannot bypass the guarded namespaces.
+- Deletions, access revocation, application URI replacement, organization MFA policy changes, and direct non-GET calls are dry-run by default.
+- Email connector backups are gitignored and written with owner-only permissions.
 
 ## Quick Start
 
 ```bash
-# Install
-uv venv && uv pip install -e '.[dev]'
-
-# Configure credentials
+uv venv
+source .venv/bin/activate
+uv pip install -e '.[dev]'
 cp .env.example .env
-# Edit .env with your 1Password op:// references
 
-# Use via wrapper script (handles op run)
-./scripts/run_cli.sh role list
-
-# Or directly with op run
-op run --env-file .env -- logto-mgmt role list
+op run --env-file .env -- logto-mgmt doctor
+op run --env-file .env -- logto-mgmt api search mfa
 ```
 
-## CLI
+If credentials are missing, unresolved, or return 403, follow [the onboarding guide](docs/onboarding.md). Do not paste an App Secret into chat.
 
-```
-logto-mgmt role create <name> [--description <desc>]
-logto-mgmt role list
-logto-mgmt role assign <role_name> <email>
-logto-mgmt role revoke <role_name> <email>
-logto-mgmt role users <role_name>
-logto-mgmt user find <email>
-logto-mgmt user create <email> [--name <name>]
-logto-mgmt user delete <email>           # dry-run preview
-logto-mgmt user delete <email> --execute # actual deletion
+## Command Groups
+
+```text
+api              Search Swagger, inspect schemas, safely call long-tail endpoints
+sign-in-exp      Read and update sign-in, MFA, passkey, and branding settings
+account-center   Read and update account self-service settings
+app              List, inspect, create, update, and delete applications
+email-template   List, edit, back up, and restore embedded email templates
+snapshot         Export and diff tenant configuration
+resource         Manage API resources and scopes
+role             Manage roles, users, and scope bindings
+user             Find, create, and safely delete users
+user-mfa         Inspect and safely remove user MFA verifications
+org              Manage organizations, members, and organization MFA policy
+doctor           Diagnose credentials, tenant ID, and Management API access
 ```
 
-`user delete` is destructive and uses a two-phase flow. Without `--execute`, it returns a JSON preview and an AI-facing warning. Re-run with `--execute` only after explicit authorization for that specific deletion.
+Run `logto-mgmt <group> --help` for full arguments. The canonical agent reference is [`skills/skill.md`](skills/skill.md).
 
 ## Python Library
+
+CLI groups and library namespaces mirror each other:
 
 ```python
 from logto_management_skill import LogtoClient
 
-client = LogtoClient(
-    endpoint="https://auth.example.com",
-    app_id="...",
-    app_secret="...",
-)
+client = LogtoClient.from_env()
 
-user = client.find_user_by_email("alice@example.com")
-print(user["lastSignInAt"])
+endpoints = client.api.search("mfa")
+user = client.users.find("alice@example.com")
+apps = client.apps.list(type="SPA")
+preview = client.apps.delete("Example App")
+result = client.apps.delete("Example App", execute=True)
 ```
+
+`client.request()` returns parsed JSON by default. Pass `raw=True` for response headers or downloads. Non-2xx responses raise `LogtoAPIError` with `status_code`, `code`, `message`, `body`, and `url`.
+
+## Safety And Backups
+
+Automatic backups are stored under `.logto-backups/` by default. The directory is excluded from git. Backups can contain complete connector configuration and must be treated as secrets.
+
+The public direct-call API intentionally rejects writes to `/api/sign-in-exp`, `/api/account-center`, and `/api/connectors/{id}`. Use `client.sign_in_exp`, `client.account_center`, or `client.email_templates` so backup and verification cannot be skipped.
+
+## Development
+
+```bash
+source .venv/bin/activate
+python -m pytest -v
+```
+
+The default suite is fully mocked and never contacts a Logto tenant. Live tests, when added or run, must remain read-only.
 
 ## Documentation
 
-- [PRD](docs/prd.md) — goals, features, success criteria
-- [RFC](docs/rfc.md) — architecture, API design, testing strategy
-- [Skill doc](skills/skill.md) — installation and usage guide for AI agents
+- [Interface design](docs/interface_design.md)
+- [Onboarding](docs/onboarding.md)
+- [Architecture](docs/rfc.md)
+- [Test strategy](docs/test.md)
+- [Agent skill](skills/skill.md)
 
 ## License
 

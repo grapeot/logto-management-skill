@@ -1,159 +1,96 @@
 from __future__ import annotations
 
 import json
-from io import StringIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-import pytest
-
+from logto_management_skill import LogtoAPIError
 from logto_management_skill.cli import build_parser, main
 
 
-class TestCLIParsing:
-    def test_role_create(self):
-        parser = build_parser()
-        args = parser.parse_args(["role", "create", "admin", "--description", "Admin"])
-        assert args.command == "role"
-        assert args.role_command == "create"
-        assert args.name == "admin"
-        assert args.description == "Admin"
-
-    def test_role_list(self):
-        parser = build_parser()
-        args = parser.parse_args(["role", "list"])
-        assert args.role_command == "list"
-
-    def test_role_assign(self):
-        parser = build_parser()
-        args = parser.parse_args(["role", "assign", "admin", "alice@example.com"])
-        assert args.role_command == "assign"
-        assert args.role_name == "admin"
-        assert args.email == "alice@example.com"
-
-    def test_role_revoke(self):
-        parser = build_parser()
-        args = parser.parse_args(["role", "revoke", "admin", "alice@example.com"])
-        assert args.role_command == "revoke"
-
-    def test_role_users(self):
-        parser = build_parser()
-        args = parser.parse_args(["role", "users", "admin"])
-        assert args.role_command == "users"
-        assert args.role_name == "admin"
-
-    def test_user_find(self):
-        parser = build_parser()
-        args = parser.parse_args(["user", "find", "alice@example.com"])
-        assert args.command == "user"
-        assert args.user_command == "find"
-        assert args.email == "alice@example.com"
-
-    def test_user_create(self):
-        parser = build_parser()
-        args = parser.parse_args(["user", "create", "alice@example.com", "--name", "Alice"])
-        assert args.user_command == "create"
-        assert args.name == "Alice"
-
-    def test_user_delete_dry_run_default(self):
-        parser = build_parser()
-        args = parser.parse_args(["user", "delete", "alice@example.com"])
-        assert args.user_command == "delete"
-        assert args.email == "alice@example.com"
-        assert args.execute is False
-
-    def test_user_delete_execute(self):
-        parser = build_parser()
-        args = parser.parse_args(["user", "delete", "alice@example.com", "--execute"])
-        assert args.user_command == "delete"
-        assert args.execute is True
+def test_parser_covers_every_group():
+    parser = build_parser()
+    commands = [
+        ["api", "search", "mfa"],
+        ["sign-in-exp", "get"],
+        ["account-center", "get"],
+        ["app", "list"],
+        ["email-template", "list"],
+        ["snapshot", "dump"],
+        ["resource", "list"],
+        ["role", "list"],
+        ["user", "find", "alice@example.com"],
+        ["user-mfa", "list", "alice@example.com"],
+        ["org", "list"],
+        ["doctor"],
+    ]
+    assert [parser.parse_args(command).command for command in commands] == [command[0] for command in commands]
 
 
-class TestCLIRun:
-    @patch("logto_management_skill.cli.LogtoClient")
-    @patch.dict("os.environ", {
-        "LOGTO_ENDPOINT": "https://auth.example.com",
-        "LOGTO_APP_ID": "id",
-        "LOGTO_APP_SECRET": "secret",
-        "LOGTO_TENANT_ID": "t1",
-    })
-    def test_role_list_outputs_json(self, mock_client_class):
-        mock_client = mock_client_class.return_value
-        mock_client.list_roles.return_value = [{"id": "r1", "name": "admin"}]
+def test_parser_covers_every_verb():
+    parser = build_parser()
+    commands = [
+        ["api", "schema", "GET", "/api/users"],
+        ["api", "call", "GET", "/api/users"],
+        ["sign-in-exp", "set-mfa", "--policy", "Mandatory"],
+        ["sign-in-exp", "set-passkey", "--enable"],
+        ["sign-in-exp", "set-branding", "--logo-url", "https://example.com/logo.png"],
+        ["account-center", "enable"], ["account-center", "disable"],
+        ["account-center", "set-fields", "--field", "email=ReadOnly"],
+        ["account-center", "set-webauthn-origins", "--origin", "https://example.com"],
+        ["app", "get", "app-id"], ["app", "create", "Example", "--type", "SPA"],
+        ["app", "update-uris", "app-id", "--add-redirect", "https://example.com/callback"],
+        ["app", "delete", "app-id"], ["email-template", "get", "SignIn"],
+        ["email-template", "backup"], ["email-template", "restore", "backup.json"],
+        ["email-template", "set", "SignIn", "--subject", "Welcome"],
+        ["email-template", "replace-text", "--find", "old", "--replace", "new"],
+        ["email-template", "append-html", "--html-file", "footer.html", "--after-marker", "<hr>", "--usage-type", "SignIn"],
+        ["snapshot", "diff", "old.json"], ["resource", "get", "resource-id"],
+        ["resource", "create", "API", "--indicator", "https://api.example.com"],
+        ["resource", "scope", "add", "API", "read"], ["role", "get", "admin"],
+        ["role", "create", "admin"], ["role", "assign", "admin", "alice@example.com"],
+        ["role", "revoke", "admin", "alice@example.com"], ["role", "users", "admin"],
+        ["role", "add-scope", "admin", "API", "read"],
+        ["user", "create", "alice@example.com"], ["user", "delete", "alice@example.com"],
+        ["user-mfa", "delete", "alice@example.com", "verification-id"],
+        ["org", "create", "Admins"], ["org", "add-member", "Admins", "alice@example.com"],
+        ["org", "set-mfa-policy", "Admins", "--policy", "Mandatory"],
+    ]
+    for command in commands:
+        parser.parse_args(command)
 
-        exit_code = main(["role", "list"])
 
-        assert exit_code == 0
+@patch("logto_management_skill.cli.LogtoClient.from_env")
+def test_cli_outputs_json_and_routes_namespace(from_env, capsys):
+    client = MagicMock()
+    client.api.search.return_value = [{"method": "GET", "path": "/api/users"}]
+    from_env.return_value = client
+    assert main(["api", "search", "users"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["path"] == "/api/users"
+    client.api.search.assert_called_once_with("users")
 
-    @patch("logto_management_skill.cli.LogtoClient")
-    @patch.dict("os.environ", {
-        "LOGTO_ENDPOINT": "https://auth.example.com",
-        "LOGTO_APP_ID": "id",
-        "LOGTO_APP_SECRET": "secret",
-        "LOGTO_TENANT_ID": "t1",
-    })
-    def test_user_find_outputs_json(self, mock_client_class):
-        mock_client = mock_client_class.return_value
-        mock_client.find_user_by_email.return_value = {
-            "id": "u1",
-            "primaryEmail": "alice@example.com",
-            "lastSignInAt": "2026-06-26T00:00:00Z",
-        }
 
-        exit_code = main(["user", "find", "alice@example.com"])
+@patch("logto_management_skill.cli.LogtoClient.from_env")
+def test_cli_error_json_has_stable_fields(from_env, capsys):
+    client = MagicMock()
+    client.roles.list.side_effect = LogtoAPIError(403, {"code": "forbidden", "message": "Denied"}, "https://example.com/api/roles")
+    from_env.return_value = client
+    assert main(["role", "list"]) == 1
+    error = json.loads(capsys.readouterr().err)
+    assert error == {"error": "Denied", "error_type": "LogtoAPIError", "status_code": 403, "code": "forbidden"}
 
-        assert exit_code == 0
 
-    @patch("logto_management_skill.cli.LogtoClient")
-    @patch.dict("os.environ", {
-        "LOGTO_ENDPOINT": "https://auth.example.com",
-        "LOGTO_APP_ID": "id",
-        "LOGTO_APP_SECRET": "secret",
-        "LOGTO_TENANT_ID": "t1",
-    })
-    def test_error_outputs_stderr(self, mock_client_class):
-        from logto_management_skill.client import LogtoAPIError
+@patch("logto_management_skill.cli.LogtoClient.from_env")
+def test_email_write_cli_dry_run_never_calls_namespace(from_env):
+    client = MagicMock()
+    from_env.return_value = client
+    assert main(["email-template", "replace-text", "--find", "old", "--replace", "new"]) == 0
+    assert client.email_templates.mock_calls == []
 
-        mock_client = mock_client_class.return_value
-        mock_client.list_roles.side_effect = LogtoAPIError(500, "server error", "/api/roles")
 
-        exit_code = main(["role", "list"])
-
-        assert exit_code == 1
-
-    @patch("logto_management_skill.cli.LogtoClient")
-    @patch.dict("os.environ", {
-        "LOGTO_ENDPOINT": "https://auth.example.com",
-        "LOGTO_APP_ID": "id",
-        "LOGTO_APP_SECRET": "secret",
-        "LOGTO_TENANT_ID": "t1",
-    })
-    def test_user_delete_dry_run_calls_client_without_execute(self, mock_client_class):
-        mock_client = mock_client_class.return_value
-        mock_client.delete_user.return_value = {"dry_run": True}
-
-        exit_code = main(["user", "delete", "alice@example.com"])
-
-        assert exit_code == 0
-        mock_client.delete_user.assert_called_once_with("alice@example.com", execute=False)
-
-    @patch("logto_management_skill.cli.LogtoClient")
-    @patch.dict("os.environ", {
-        "LOGTO_ENDPOINT": "https://auth.example.com",
-        "LOGTO_APP_ID": "id",
-        "LOGTO_APP_SECRET": "secret",
-        "LOGTO_TENANT_ID": "t1",
-    })
-    def test_user_delete_execute_calls_client_with_execute(self, mock_client_class):
-        mock_client = mock_client_class.return_value
-        mock_client.delete_user.return_value = {"deleted": True}
-
-        exit_code = main(["user", "delete", "alice@example.com", "--execute"])
-
-        assert exit_code == 0
-        mock_client.delete_user.assert_called_once_with("alice@example.com", execute=True)
-
-    def test_missing_env_vars_exits_1(self):
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(SystemExit) as exc_info:
-                main(["role", "list"])
-            assert exc_info.value.code == 1
+@patch("logto_management_skill.cli.LogtoClient.from_env")
+def test_doctor_failure_returns_nonzero(from_env, capsys):
+    client = MagicMock()
+    client.doctor.run.return_value = {"ok": False, "classification": "missing_management_api_role"}
+    from_env.return_value = client
+    assert main(["doctor"]) == 1
+    assert json.loads(capsys.readouterr().err)["classification"] == "missing_management_api_role"

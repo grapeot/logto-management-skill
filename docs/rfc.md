@@ -1,145 +1,103 @@
-# RFC — Logto Management Skill
+# RFC: Logto Management Skill v2
+
+## Status
+
+Implemented in v0.2.0. The approved command contract is in `interface_design.md`; the evidence behind the design is in `expansion_design.md`.
 
 ## Architecture
 
 ```text
-User / AI Agent
-  -> scripts/run_cli.sh (op run --env-file .env --)
-  -> logto-mgmt CLI (argparse, JSON output)
-  -> LogtoClient (core library)
-      -> token cache + 401 auto-refresh
-      -> Logto Management API (REST, Bearer token)
+logto-mgmt <group> <verb>
+        -> LogtoClient.<namespace>.<verb>()
+        -> LogtoClient.request()
+        -> token cache + one 401 retry + structured errors
+        -> Logto Management API
 ```
 
-## Credential Resolution
+CLI groups and Python namespaces are isomorphic. For example, `logto-mgmt app create` maps to `client.apps.create()` and `logto-mgmt email-template backup` maps to `client.email_templates.backup()`.
 
-The CLI never touches 1Password directly. Credentials are resolved before the Python process starts:
+## Credentials And Tenant Resolution
 
-1. `.env` contains `op://your-vault/your-item/field` references
-2. `op run --env-file .env -- python -m ...` resolves all references into real env vars
-3. If `OP_SERVICE_ACCOUNT_TOKEN` is set → automatic resolution (no UI prompt)
-4. If not set → 1Password prompts for Touch ID / password per vault access
-5. The Python code just reads `os.environ["LOGTO_ENDPOINT"]` etc.
+The package does not call 1Password. `op run --env-file .env -- ...` resolves `op://` references before Python starts. `LogtoClient.from_env()` reads:
 
-This means the library code is credential-agnostic. The same code runs in CI (service account) and on a laptop (interactive approval).
+- `LOGTO_ENDPOINT`
+- `LOGTO_APP_ID`
+- `LOGTO_APP_SECRET`
+- `LOGTO_TENANT_ID`, required only for custom domains
 
-## Core Library: LogtoClient
+For `*.logto.app` endpoints, the tenant ID and Management API resource indicator are derived from the hostname. A custom domain without a tenant ID fails before the first token request and tells the operator to use the Management API indicator in Logto Console.
 
-```python
-class LogtoClient:
-    def __init__(self, endpoint, app_id, app_secret, tenant_id=None): ...
+Logto exposes only one Management API scope, `all`. Endpoint-level least privilege is unavailable. Isolation therefore depends on dedicated M2M applications, secret references instead of plaintext, independent credential rotation, and this package's write guards.
 
-    # Token
-    def _get_token(self) -> str: ...
-    def _refresh_if_needed(self) -> None: ...  # called on 401
+## HTTP And Errors
 
-    # Users
-    def create_user(self, email, name=None) -> dict: ...
-    def find_user_by_email(self, email) -> dict | None: ...
-    def update_user(self, user_id, patch: dict) -> dict: ...  # library only
-    def fetch_all_emails(self) -> set[str]: ...  # library only
+`LogtoClient.request()` is the public long-tail HTTP API. It returns decoded JSON, `None` for an empty body, or a raw `requests.Response` when `raw=True`. It caches the M2M token and retries exactly once after a 401.
 
-    # Roles
-    def create_role(self, name, description=None) -> dict: ...
-    def list_roles(self) -> list[dict]: ...
-    def assign_role_to_user(self, role_name, email) -> dict: ...
-    def revoke_role_from_user(self, role_name, email) -> dict: ...
-    def get_role_users(self, role_name) -> list[dict]: ...
+`LogtoAPIError` preserves:
+
+```text
+status_code   HTTP status
+code          Logto business error code, when present
+message       Logto message or a fallback
+body          Complete decoded response body
+url           Request URL
 ```
 
-### Token Management
+## Endpoint Discovery
 
-- Token is fetched on first API call and cached in memory (`_token`, `_token_acquired_at`)
-- On any 401 response: invalidate cache, re-fetch token, retry the request once
-- If retry also fails, raise the error with full HTTP status + response body
-- No proactive expiry tracking (Logto tokens don't expose `expires_in` reliably); 401-driven refresh is sufficient
+`client.api` caches `GET /api/swagger.json` for the process lifetime. `search()` matches method, path, and summary. `schema()` resolves local OpenAPI references for parameters, request bodies, and responses. `call()` allows GET immediately and returns a dry-run for every other method unless `execute=True`.
 
-### Error Handling
+The Swagger comes from the tenant itself, not from a bundled API version. This avoids path guessing and follows the tenant's deployed Logto version.
 
-All API errors preserve the original HTTP response for AI agent debugging:
+## Protected Configuration Writes
 
-```python
-class LogtoAPIError(Exception):
-    def __init__(self, status_code: int, response_body: str, url: str):
-        self.status_code = status_code
-        self.response_body = response_body
-        self.url = url
-        super().__init__(f"Logto API {status_code} at {url}: {response_body[:200]}")
-```
+Sign-in experience, account center, and email connector configuration use whole-object or whole-subtree replacement semantics. Every namespace write runs this sequence internally:
 
-Idempotent operations: `create_user` treats 409/422 as "already exists" and returns the existing user. `assign_role_to_user` treats 409 as "already assigned".
+1. GET the complete current object.
+2. Deep-copy it.
+3. Apply the local mutation to the copy.
+4. Write a versioned backup before any network mutation.
+5. PATCH the complete writable object or connector config.
+6. GET again and verify that the expected state is present.
 
-### Custom Domain Support
+The public `request()` method blocks direct writes to `/api/sign-in-exp`, `/api/account-center`, and `/api/connectors/{id}`. `api call --execute` uses that same public path and cannot bypass the block. Only guarded namespaces can access the private write outlet.
 
-Logto tenants with custom domains (e.g. `auth.example.com`) require a `tenant_id` to construct the correct resource URI for token requests. The library handles this:
+Backups default to `.logto-backups/`, which is gitignored. The directory uses mode `0700`; files use `0600` and are atomically replaced after fsync. An artifact records schema version, resource type, a non-reversible tenant fingerprint, and the complete pre-write object. Email restore rejects malformed artifacts, other resource types, other tenants, and connector ID mismatches before PATCH.
 
-- If endpoint contains `logto.app` → resource = `{base}/api`
-- If endpoint is a custom domain and `tenant_id` is provided → resource = `https://{tenant_id}.logto.app/api`
-- If custom domain without `tenant_id` → raise with a clear message
+There is intentionally no `--no-backup` option. The final implementation follows the stronger safety invariant rather than offering a bypass.
 
-## CLI Design
+## Dry-Run Model
 
-```
-logto-mgmt <subcommand> [options]
-```
+The following operations require explicit execution:
 
-All output is JSON to stdout. Errors go to stderr as JSON: `{"error": "...", "status_code": N, "response": "..."}`.
+- Direct non-GET API calls
+- User deletion
+- Application deletion and URI replacement
+- Email template edits and restore
+- User MFA verification deletion
+- Role revocation
+- Organization MFA policy changes
 
-```
-logto-mgmt role create <name> [--description <desc>]
-logto-mgmt role list
-logto-mgmt role assign <role_name> <email>
-logto-mgmt role revoke <role_name> <email>
-logto-mgmt role users <role_name>
-logto-mgmt user find <email>
-logto-mgmt user create <email> [--name <name>]
-logto-mgmt user delete <email>           # dry-run by default
-logto-mgmt user delete <email> --execute # actual deletion
-```
+Dry-run results identify the target, explain the risk, and include an `execute_command`. Create and additive operations execute immediately. Sign-in experience and account center writes execute immediately but are protected by mandatory backup, read-modify-write, and verification.
 
-`role assign` / `revoke` accept role by name (not ID) and user by email (not ID). The library resolves names to IDs internally. `role users` also accepts role by name.
+## Pagination And Resolution
 
-### Two-phase delete
+Collection namespaces request pages of 100 until a short page is returned. Name-or-ID resolution scans the complete collection. Snapshot export uses the same paginated methods, preventing silent first-page truncation.
 
-`user delete` is destructive. Without `--execute`, it returns a preview:
+## Snapshots
 
-```json
-{
-  "dry_run": true,
-  "action": "delete_user",
-  "user": {
-    "id": "abc123",
-    "primaryEmail": "alice@example.com",
-    "name": "Alice"
-  },
-  "warning": "This operation will permanently delete the Logto user alice@example.com. This cannot be undone. If you are an AI agent, verify that you have explicit human authorization for this specific deletion before running with --execute.",
-  "execute_command": "logto-mgmt user delete alice@example.com --execute"
-}
-```
+Snapshot export aggregates applications, resources with scopes, roles, sign-in experience, account center, connector summaries, template content hashes, and user count. It never stores email template content. Diff ignores the volatile snapshot timestamp and normalizes collections by stable identifiers before comparison.
 
-With `--execute`, the deletion is performed and the result is returned:
+## Doctor
 
-```json
-{
-  "deleted": true,
-  "user": {
-    "id": "abc123",
-    "primaryEmail": "alice@example.com"
-  }
-}
-```
+`doctor` distinguishes unresolved `op://` references, missing tenant ID, invalid credentials, missing Management API role, and other probe failures. It obtains a token and probes four read-only endpoints. A failed diagnosis exits non-zero.
 
-The library method `delete_user(email)` accepts an `execute: bool = False` parameter. When `execute=False`, it looks up the user and returns the preview dict without calling the DELETE endpoint. When `execute=True`, it calls `DELETE /api/users/{id}`.
+## Testing
 
-## Testing Strategy
+The default pytest suite replaces all HTTP calls with mocks. Tests assert the five safety invariants directly, including request call lists and operation order. No default test reaches a real tenant. Any opt-in live suite is restricted to read-only operations.
 
-- All tests mock `requests` via `unittest.mock.patch`
-- No live Logto API calls in the test suite
-- Coverage targets:
-  - Token acquisition and 401 refresh
-  - Custom domain resource construction (with and without tenant_id)
-  - Role CRUD (create, list, assign, revoke, get users)
-  - User operations (create with idempotent 409, find by email, create passwordless, delete dry-run + execute)
-  - CLI argument parsing and JSON output
-  - Error transparency (status code + body preserved)
-- Optional live integration tests behind a flag (`LOGTO_LIVE_TESTS=1`), not run by default
+## Non-Goals
+
+- The end-user Account API under `/api/my-account/*` is not wrapped.
+- The package is not a Logto Console replacement.
+- Long-tail endpoints are discovered and called through `api`; exhaustive wrappers are not a goal.

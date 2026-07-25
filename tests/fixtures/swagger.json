@@ -1,0 +1,55 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/users": {
+      "get": {
+        "summary": "Get users",
+        "parameters": []
+      }
+    },
+    "/api/users/{userId}/mfa-verifications": {
+      "get": {
+        "summary": "Get user's MFA verifications",
+        "parameters": [
+          {"$ref": "#/components/parameters/userId"}
+        ]
+      }
+    },
+    "/api/sign-in-exp": {
+      "patch": {
+        "summary": "Update default sign-in experience settings",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/signInExp"
+        },
+        "responses": {
+          "200": {"description": "Updated"}
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "userId": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": {"type": "string"}
+      }
+    },
+    "requestBodies": {
+      "signInExp": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "mfa": {"type": "object"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
