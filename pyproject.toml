@@ -1,7 +1,7 @@
 [project]
 name = "logto-management-skill"
-version = "0.1.0"
-description = "CLI and Python library for managing Logto users, roles, and organizations via the Management API"
+version = "0.2.0"
+description = "Safe CLI and Python library for discovering and managing Logto tenant configuration"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -28,3 +28,6 @@ packages = ["src/logto_management_skill"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live_integration: opt-in read-only tests against a real Logto tenant",
+]

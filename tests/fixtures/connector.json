@@ -1,0 +1,29 @@
+{
+  "id": "connector-id",
+  "connectorId": "smtp",
+  "target": "Email",
+  "config": {
+    "host": "smtp.example.com",
+    "fromEmail": "alice@example.com",
+    "templates": [
+      {
+        "usageType": "SignIn",
+        "subject": "Welcome to Example",
+        "contentType": "text/html",
+        "content": "<p>Welcome to Example</p><hr>"
+      },
+      {
+        "usageType": "BindMfa",
+        "subject": "Verify for Example",
+        "contentType": "text/html",
+        "content": "<p>Code for Example</p><hr>"
+      },
+      {
+        "usageType": "ForgotPassword",
+        "subject": "Reset your password",
+        "contentType": "text/html",
+        "content": "<p>Reset link</p><hr>"
+      }
+    ]
+  }
+}
