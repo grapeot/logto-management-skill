@@ -21,17 +21,92 @@ def test_users_roles_resources_and_scope_binding(client):
 
 def test_apps_filter_create_update_and_delete(client):
     apps = [
-        {"id": "spa-id", "name": "Web", "type": "SPA", "oidcClientMetadata": {"redirectUris": ["https://example.com/old"]}},
+        {"id": "spa-id", "name": "Web", "type": "SPA", "secret": "internal-value", "oidcClientMetadata": {"redirectUris": ["https://example.com/old"]}},
         {"id": "m2m-id", "name": "Worker", "type": "MachineToMachine", "oidcClientMetadata": {}},
     ]
     client.request.return_value = apps
-    assert [item["id"] for item in client.apps.list("SPA")] == ["spa-id"]
+    listed = client.apps.list("SPA")
+    assert [item["id"] for item in listed] == ["spa-id"]
+    assert "secret" not in listed[0]
+
+    client.request.reset_mock()
+    preview = client.apps.create(
+        "Example",
+        type="SPA",
+        redirect_uris=["https://example.com/callback"],
+    )
+    assert preview["dry_run"] is True
+    assert client.request.call_args_list == []
+
+    client.request.return_value = {"id": "new-id", "name": "Example", "secret": "internal-value"}
+    created = client.apps.create("Example", type="SPA", execute=True)
+    assert created == {"id": "new-id", "name": "Example"}
 
     client.request.reset_mock()
     client.request.side_effect = [apps, {"id": "spa-id"}]
     client.apps.update_uris("Web", add_redirect=["https://example.com/new"], remove_redirect=["https://example.com/old"], execute=True)
     payload = client.request.call_args_list[-1].kwargs["json"]
     assert payload["oidcClientMetadata"]["redirectUris"] == ["https://example.com/new"]
+
+
+def test_application_access_control_preserves_non_role_rules_and_enables_last(client):
+    app = {
+        "id": "spa-id",
+        "name": "Web",
+        "type": "SPA",
+        "appLevelAccessControlEnabled": False,
+        "oidcClientMetadata": {},
+    }
+    enabled_app = {**app, "appLevelAccessControlEnabled": True}
+    role = {"id": "role-id", "name": "admin", "type": "User"}
+    before = {
+        "userIds": ["user-id"],
+        "userRoleIds": ["old-role-id"],
+        "organizationIds": ["organization-id"],
+        "organizationRoleRules": [
+            {"organizationId": "organization-id", "organizationRoleIds": ["organization-role-id"]}
+        ],
+    }
+    replacement = {**before, "userRoleIds": ["role-id"]}
+    client.request.side_effect = [
+        [app],
+        [role],
+        before,
+        replacement,
+        replacement,
+        enabled_app,
+        [enabled_app],
+    ]
+
+    result = client.apps.access_control.set_role("Web", "admin", execute=True)
+
+    assert result["updated"] is True
+    calls = client.request.call_args_list
+    assert calls[3].args == ("PUT", "/api/applications/spa-id/access-control")
+    assert calls[3].kwargs["json"] == replacement
+    assert calls[4].args == ("GET", "/api/applications/spa-id/access-control")
+    assert calls[5].args == ("PATCH", "/api/applications/spa-id")
+    assert calls[5].kwargs["json"] == {"appLevelAccessControlEnabled": True}
+    assert calls[6].args == ("GET", "/api/applications")
+
+
+def test_application_access_control_dry_run_never_writes(client):
+    app = {"id": "spa-id", "name": "Web", "type": "SPA", "oidcClientMetadata": {}}
+    role = {"id": "role-id", "name": "admin", "type": "User"}
+    before = {
+        "userIds": ["user-id"],
+        "userRoleIds": [],
+        "organizationIds": [],
+        "organizationRoleRules": [],
+    }
+    client.request.side_effect = [[app], [role], before]
+
+    result = client.apps.access_control.set_role("Web", "admin")
+
+    assert result["dry_run"] is True
+    assert result["replacement"]["userIds"] == ["user-id"]
+    assert result["replacement"]["userRoleIds"] == ["role-id"]
+    assert all(item.args[0] == "GET" for item in client.request.call_args_list)
 
 
 def test_email_template_summary_replace_append_backup_restore(client, connector, tmp_path):

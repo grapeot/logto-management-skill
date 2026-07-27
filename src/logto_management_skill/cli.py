@@ -151,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     app_create.add_argument("--redirect-uri", action="append")
     app_create.add_argument("--post-logout-uri", action="append")
     app_create.add_argument("--description")
+    _add_execute(app_create)
     app_uris = app_sub.add_parser("update-uris")
     app_uris.add_argument("name_or_id")
     app_uris.add_argument("--add-redirect", action="append")
@@ -161,6 +162,14 @@ def build_parser() -> argparse.ArgumentParser:
     app_delete = app_sub.add_parser("delete")
     app_delete.add_argument("name_or_id")
     _add_execute(app_delete)
+    app_access = app_sub.add_parser("access-control")
+    app_access_sub = app_access.add_subparsers(dest="app_access_command", required=True)
+    app_access_get = app_access_sub.add_parser("get")
+    app_access_get.add_argument("name_or_id")
+    app_access_role = app_access_sub.add_parser("set-role")
+    app_access_role.add_argument("name_or_id")
+    app_access_role.add_argument("role")
+    _add_execute(app_access_role)
 
     email = groups.add_parser("email-template", help="Email template management")
     email_sub = email.add_subparsers(dest="email_command", required=True)
@@ -316,9 +325,15 @@ def _dispatch(client: LogtoClient, args: argparse.Namespace) -> Any:
         if args.app_command == "get":
             return client.apps.get(args.name_or_id)
         if args.app_command == "create":
-            return client.apps.create(args.name, type=args.type, redirect_uris=args.redirect_uri, post_logout_uris=args.post_logout_uri, description=args.description)
+            return client.apps.create(args.name, type=args.type, redirect_uris=args.redirect_uri, post_logout_uris=args.post_logout_uri, description=args.description, execute=args.execute)
         if args.app_command == "update-uris":
             return client.apps.update_uris(args.name_or_id, add_redirect=args.add_redirect, remove_redirect=args.remove_redirect, add_post_logout=args.add_post_logout, remove_post_logout=args.remove_post_logout, execute=args.execute)
+        if args.app_command == "access-control":
+            if args.app_access_command == "get":
+                return client.apps.access_control.get(args.name_or_id)
+            return client.apps.access_control.set_role(
+                args.name_or_id, args.role, execute=args.execute
+            )
         return client.apps.delete(args.name_or_id, execute=args.execute)
 
     if args.command == "email-template":

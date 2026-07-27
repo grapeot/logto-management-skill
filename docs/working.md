@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-07-27
+
+- Added guarded application access-control get/set-role commands with full dry-run payloads, non-role rule preservation, verification, and enable-last ordering.
+- Made application creation dry-run by default with explicit `--execute`.
+- Removed Logto's deprecated internal `secret` field from application and snapshot output.
+- Blocked direct API writes from bypassing application access-control safeguards.
+- Verified the complete offline suite: 43 passed, 2 opt-in live tests skipped.
+
 ### 2026-07-25
 
 - Released the v2 clean-slate library contract: public parsed-JSON `request()`, structured `LogtoAPIError.code`, `from_env()`, and CLI-isomorphic namespaces.

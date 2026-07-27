@@ -60,7 +60,7 @@ Sign-in experience, account center, and email connector configuration use whole-
 5. PATCH the complete writable object or connector config.
 6. GET again and verify that the expected state is present.
 
-The public `request()` method blocks direct writes to `/api/sign-in-exp`, `/api/account-center`, and `/api/connectors/{id}`. `api call --execute` uses that same public path and cannot bypass the block. Only guarded namespaces can access the private write outlet.
+The public `request()` method blocks direct writes to `/api/sign-in-exp`, `/api/account-center`, `/api/connectors/{id}`, and application access-control configuration. `api call --execute` uses that same public path and cannot bypass the block. Only guarded namespaces can access the private write outlet.
 
 Backups default to `.logto-backups/`, which is gitignored. The directory uses mode `0700`; files use `0600` and are atomically replaced after fsync. An artifact records schema version, resource type, a non-reversible tenant fingerprint, and the complete pre-write object. Email restore rejects malformed artifacts, other resource types, other tenants, and connector ID mismatches before PATCH.
 
@@ -72,13 +72,15 @@ The following operations require explicit execution:
 
 - Direct non-GET API calls
 - User deletion
-- Application deletion and URI replacement
+- Application creation, deletion, URI replacement, and access-control replacement
 - Email template edits and restore
 - User MFA verification deletion
 - Role revocation
 - Organization MFA policy changes
 
-Dry-run results identify the target, explain the risk, and include an `execute_command`. Create and additive operations execute immediately. Sign-in experience and account center writes execute immediately but are protected by mandatory backup, read-modify-write, and verification.
+Dry-run results identify the target, explain the risk, and include an `execute_command`. Application access-control writes preserve direct-user and organization rules while replacing the complete user-role list. Execution writes and verifies the rules before enabling the application gate. Other additive operations execute immediately. Sign-in experience and account center writes execute immediately but are protected by mandatory backup, read-modify-write, and verification.
+
+Application list, get, create, update, delete, and snapshot output recursively omit Logto's deprecated internal `secret` field. This field is not the current application-secret API, but exposing it by default provides no operational value.
 
 ## Pagination And Resolution
 

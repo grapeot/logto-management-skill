@@ -29,6 +29,10 @@ def test_destructive_dry_runs_never_write(client):
     assert not WRITE_METHODS.intersection(_methods(client.request))
 
     client.request.reset_mock()
+    assert client.apps.create("Example App", type="SPA")["dry_run"]
+    assert not WRITE_METHODS.intersection(_methods(client.request))
+
+    client.request.reset_mock()
     client.request.side_effect = [[user], [verification]]
     assert client.user_mfa.delete("alice@example.com", "verification-id")["dry_run"]
     assert not WRITE_METHODS.intersection(_methods(client.request))
@@ -122,11 +126,40 @@ def test_public_request_and_api_cannot_bypass_protected_writes():
         "/api/account-center/",
         "/api/account-center?probe=1",
         "/api/connectors/connector-id",
+        "/api/applications/app-id/access-control",
     ):
         with pytest.raises(ValueError, match="Direct writes"):
             client.request("PATCH", path, json={})
         with pytest.raises(ValueError, match="Direct writes"):
             client.api.call("PATCH", path, json={}, execute=True)
+
+    with pytest.raises(ValueError, match="Direct writes"):
+        client.api.call(
+            "PATCH",
+            "/api/applications/app-id",
+            json={"appLevelAccessControlEnabled": True},
+            execute=True,
+        )
+
+
+def test_access_control_mismatch_does_not_enable_gate(client):
+    app = {"id": "app-id", "name": "Example App", "oidcClientMetadata": {}}
+    role = {"id": "role-id", "name": "admin", "type": "User"}
+    before = {
+        "userIds": [],
+        "userRoleIds": [],
+        "organizationIds": [],
+        "organizationRoleRules": [],
+    }
+    client.request.side_effect = [[app], [role], before, {}, before]
+
+    with pytest.raises(RuntimeError, match="gate was not enabled"):
+        client.apps.access_control.set_role("Example App", "admin", execute=True)
+
+    assert not any(
+        item.args[:2] == ("PATCH", "/api/applications/app-id")
+        for item in client.request.call_args_list
+    )
 
 
 def test_restore_rejects_backup_from_another_tenant(client, connector, tmp_path):

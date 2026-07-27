@@ -39,7 +39,10 @@ def test_parser_covers_every_verb():
         ["account-center", "set-webauthn-origins", "--origin", "https://example.com"],
         ["app", "get", "app-id"], ["app", "create", "Example", "--type", "SPA"],
         ["app", "update-uris", "app-id", "--add-redirect", "https://example.com/callback"],
-        ["app", "delete", "app-id"], ["email-template", "get", "SignIn"],
+        ["app", "delete", "app-id"],
+        ["app", "access-control", "get", "app-id"],
+        ["app", "access-control", "set-role", "app-id", "admin"],
+        ["email-template", "get", "SignIn"],
         ["email-template", "backup"], ["email-template", "restore", "backup.json"],
         ["email-template", "set", "SignIn", "--subject", "Welcome"],
         ["email-template", "replace-text", "--find", "old", "--replace", "new"],
@@ -85,6 +88,31 @@ def test_email_write_cli_dry_run_never_calls_namespace(from_env):
     from_env.return_value = client
     assert main(["email-template", "replace-text", "--find", "old", "--replace", "new"]) == 0
     assert client.email_templates.mock_calls == []
+
+
+@patch("logto_management_skill.cli.LogtoClient.from_env")
+def test_app_create_cli_passes_execute_guard(from_env):
+    client = MagicMock()
+    from_env.return_value = client
+    assert main(["app", "create", "Example", "--type", "SPA"]) == 0
+    client.apps.create.assert_called_once_with(
+        "Example",
+        type="SPA",
+        redirect_uris=None,
+        post_logout_uris=None,
+        description=None,
+        execute=False,
+    )
+
+
+@patch("logto_management_skill.cli.LogtoClient.from_env")
+def test_app_access_control_cli_routes_set_role(from_env):
+    client = MagicMock()
+    from_env.return_value = client
+    assert main(["app", "access-control", "set-role", "Example", "admin"]) == 0
+    client.apps.access_control.set_role.assert_called_once_with(
+        "Example", "admin", execute=False
+    )
 
 
 @patch("logto_management_skill.cli.LogtoClient.from_env")

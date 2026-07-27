@@ -9,8 +9,8 @@ Logto endpoint paths are not reliably guessable. `logto-mgmt api search` reads t
 Tenant-wide writes need stronger protection than ordinary CRUD:
 
 - Email templates, sign-in experience, and account center writes always read the complete object, deep-copy it, modify one part, save a local backup, PATCH, and re-read to verify.
-- Direct writes to those protected endpoints are blocked in `client.request()` and `api call`, so callers cannot bypass the guarded namespaces.
-- Deletions, access revocation, application URI replacement, organization MFA policy changes, and direct non-GET calls are dry-run by default.
+- Direct writes to protected configuration endpoints, including application access control, are blocked in `client.request()` and `api call`, so callers cannot bypass the guarded namespaces.
+- Deletions, access revocation, application creation and URI replacement, organization MFA policy changes, and direct non-GET calls are dry-run by default.
 - Email connector backups are gitignored and written with owner-only permissions.
 
 ## Quick Start
@@ -33,7 +33,7 @@ If credentials are missing, unresolved, or return 403, follow [the onboarding gu
 api              Search Swagger, inspect schemas, safely call long-tail endpoints
 sign-in-exp      Read and update sign-in, MFA, passkey, and branding settings
 account-center   Read and update account self-service settings
-app              List, inspect, create, update, and delete applications
+app              Manage applications, redirect URIs, and app-level access control
 email-template   List, edit, back up, and restore embedded email templates
 snapshot         Export and diff tenant configuration
 resource         Manage API resources and scopes
@@ -60,6 +60,7 @@ user = client.users.find("alice@example.com")
 apps = client.apps.list(type="SPA")
 preview = client.apps.delete("Example App")
 result = client.apps.delete("Example App", execute=True)
+access_plan = client.apps.access_control.set_role("Example App", "admin")
 ```
 
 `client.request()` returns parsed JSON by default. Pass `raw=True` for response headers or downloads. Non-2xx responses raise `LogtoAPIError` with `status_code`, `code`, `message`, `body`, and `url`.
@@ -68,7 +69,7 @@ result = client.apps.delete("Example App", execute=True)
 
 Automatic backups are stored under `.logto-backups/` by default. The directory is excluded from git. Backups can contain complete connector configuration and must be treated as secrets.
 
-The public direct-call API intentionally rejects writes to `/api/sign-in-exp`, `/api/account-center`, and `/api/connectors/{id}`. Use `client.sign_in_exp`, `client.account_center`, or `client.email_templates` so backup and verification cannot be skipped.
+The public direct-call API intentionally rejects writes to `/api/sign-in-exp`, `/api/account-center`, `/api/connectors/{id}`, and application access-control configuration. Use the matching namespace so backup or verification cannot be skipped. Application list/get/snapshot output also removes Logto's deprecated internal `secret` field.
 
 ## Development
 
