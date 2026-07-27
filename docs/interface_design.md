@@ -161,12 +161,14 @@ logto-mgmt email-template backup [--out dir] | restore <backup.json> --execute
 ```bash
 logto-mgmt app list [--type SPA|Traditional|MachineToMachine|Native]
 logto-mgmt app get <name-or-id>
-logto-mgmt app create <name> --type SPA [--redirect-uri URI]... [--post-logout-uri URI]... [--description TEXT]
+logto-mgmt app create <name> --type SPA [--redirect-uri URI]... [--post-logout-uri URI]... [--description TEXT] [--execute]
 logto-mgmt app update-uris <name-or-id> [--add-redirect URI]... [--remove-redirect URI]...
+logto-mgmt app access-control get <name-or-id>
+logto-mgmt app access-control set-role <name-or-id> <user-role> [--execute]
 logto-mgmt app delete <name-or-id>                 # dry-run 默认
 ```
 
-`get` 要把 `oidcClientMetadata`、`appLevelAccessControlEnabled`、`isThirdParty` 平铺——排查登录问题时最常看这几项。
+`get` 要把 `oidcClientMetadata`、`appLevelAccessControlEnabled`、`isThirdParty` 平铺——排查登录问题时最常看这几项。所有 application 输出都移除 deprecated internal `secret`。`create` 默认 dry-run。`access-control set-role` 保留 direct-user 与 organization rules，只替换 user-role list；执行时必须先 PUT rules 并回读成功，最后才启用 gate。
 
 ### 4.7 `resource` / `role` — 权限
 

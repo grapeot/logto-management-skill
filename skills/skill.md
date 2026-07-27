@@ -80,13 +80,17 @@ Field permissions are `Off`, `ReadOnly`, or `Edit`. Invalid values fail locally 
 logto-mgmt app list [--type SPA|Traditional|MachineToMachine|Native]
 logto-mgmt app get <name-or-id>
 logto-mgmt app create <name> --type SPA [--redirect-uri URI]... [--post-logout-uri URI]... [--description TEXT]
+logto-mgmt app create <name> --type SPA [options] --execute
 logto-mgmt app update-uris <name-or-id> [--add-redirect URI]... [--remove-redirect URI]...
 logto-mgmt app update-uris <name-or-id> [options] --execute
+logto-mgmt app access-control get <name-or-id>
+logto-mgmt app access-control set-role <name-or-id> <user-role>
+logto-mgmt app access-control set-role <name-or-id> <user-role> --execute
 logto-mgmt app delete <name-or-id>
 logto-mgmt app delete <name-or-id> --execute
 ```
 
-URI replacement and deletion are dry-run by default.
+Creation, URI replacement, access-control replacement, and deletion are dry-run by default. `set-role` preserves existing direct-user and organization rules, replaces the complete user-role list, verifies the rules, and only then enables the application gate. Application output omits Logto's deprecated internal `secret` field.
 
 ### Email Templates
 
@@ -171,6 +175,7 @@ client = LogtoClient.from_env()
 client.api.search("mfa")
 client.users.find("alice@example.com")
 client.roles.add_scope("admin", "Example API", "read")
+client.apps.access_control.set_role("Example App", "admin", execute=True)
 client.sign_in_exp.set_mfa("Mandatory", ["Totp"])
 client.email_templates.backup()
 client.email_templates.replace_text("Old name", "New name", execute=True)

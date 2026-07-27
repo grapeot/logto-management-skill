@@ -267,8 +267,26 @@ class RolesNamespace(Namespace):
 
 
 class AppsNamespace(Namespace):
+    def __post_init__(self) -> None:
+        self.access_control = AppAccessControlNamespace(self.client, self)
+
+    @staticmethod
+    def _redact(app: dict) -> dict:
+        def redact(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {
+                    key: redact(item)
+                    for key, item in value.items()
+                    if key != "secret"
+                }
+            if isinstance(value, list):
+                return [redact(item) for item in value]
+            return value
+
+        return redact(app)
+
     def list(self, type: str | None = None) -> list[dict]:
-        apps = _paginate(self.client, "/api/applications")
+        apps = [self._redact(app) for app in _paginate(self.client, "/api/applications")]
         return [app for app in apps if app.get("type") == type] if type else apps
 
     def get(self, name_or_id: str) -> dict:
@@ -281,7 +299,7 @@ class AppsNamespace(Namespace):
 
             raise LogtoAPIError(404, {"message": f"Application '{name_or_id}' not found"}, "/api/applications")
         metadata = app.get("oidcClientMetadata") or {}
-        return {**app, **metadata}
+        return {**self._redact(app), **metadata}
 
     def create(
         self,
@@ -291,6 +309,7 @@ class AppsNamespace(Namespace):
         redirect_uris: list[str] | None = None,
         post_logout_uris: list[str] | None = None,
         description: str | None = None,
+        execute: bool = False,
     ) -> dict:
         payload: dict[str, Any] = {"name": name, "type": type}
         if description:
@@ -301,8 +320,16 @@ class AppsNamespace(Namespace):
                 "postLogoutRedirectUris": post_logout_uris or [],
             }
             payload["oidcClientMetadata"] = metadata
+        if not execute:
+            return {
+                "dry_run": True,
+                "action": "create_application",
+                "application": payload,
+                "warning": "This creates a new Logto application. Review the complete payload before executing.",
+                "execute_command": f"logto-mgmt app create {name} [options] --execute",
+            }
         result = self.client.request("POST", "/api/applications", json=payload)
-        return result if isinstance(result, dict) else {}
+        return self._redact(result) if isinstance(result, dict) else {}
 
     def update_uris(
         self,
@@ -338,7 +365,7 @@ class AppsNamespace(Namespace):
         result = self.client.request(
             "PATCH", f"/api/applications/{app['id']}", json={"oidcClientMetadata": metadata}
         )
-        return result if isinstance(result, dict) else {"updated": True, "id": app["id"]}
+        return self._redact(result) if isinstance(result, dict) else {"updated": True, "id": app["id"]}
 
     def delete(self, name_or_id: str, *, execute: bool = False) -> dict:
         app = self.get(name_or_id)
@@ -352,6 +379,91 @@ class AppsNamespace(Namespace):
             }
         self.client.request("DELETE", f"/api/applications/{app['id']}")
         return {"deleted": True, "application": app}
+
+
+class AppAccessControlNamespace(Namespace):
+    def __init__(self, client: LogtoClient, apps: AppsNamespace):
+        super().__init__(client)
+        self.apps = apps
+
+    def _read(self, application_id: str) -> dict:
+        result = self.client.request(
+            "GET", f"/api/applications/{application_id}/access-control"
+        )
+        return result if isinstance(result, dict) else {}
+
+    def get(self, name_or_id: str) -> dict:
+        app = self.apps.get(name_or_id)
+        return {
+            "application": app,
+            "access_control": self._read(app["id"]),
+        }
+
+    def set_role(
+        self, name_or_id: str, role: str, *, execute: bool = False
+    ) -> dict:
+        app = self.apps.get(name_or_id)
+        role_obj = self.client.roles.get(role)
+        if role_obj.get("type") not in (None, "User"):
+            raise ValueError(
+                f"Application access control requires a User role, got {role_obj.get('type')}."
+            )
+        before = self._read(app["id"])
+        payload = {
+            "userIds": list(before.get("userIds") or []),
+            "userRoleIds": [role_obj["id"]],
+            "organizationIds": list(before.get("organizationIds") or []),
+            "organizationRoleRules": deepcopy(
+                before.get("organizationRoleRules") or []
+            ),
+        }
+        preview = {
+            "application": app,
+            "role": role_obj,
+            "before": before,
+            "replacement": payload,
+        }
+        if not execute:
+            return {
+                "dry_run": True,
+                "action": "set_application_access_control_role",
+                **preview,
+                "warning": (
+                    "This replaces the complete user-role allow list, preserves existing "
+                    "user and organization rules, and then enables app-level access control."
+                ),
+                "execute_command": (
+                    f"logto-mgmt app access-control set-role {name_or_id} {role} --execute"
+                ),
+            }
+
+        self.client._guarded_request(
+            "PUT",
+            f"/api/applications/{app['id']}/access-control",
+            json=payload,
+        )
+        verified_rules = self._read(app["id"])
+        if verified_rules != payload:
+            raise RuntimeError(
+                "Verification failed after replacing application access-control rules; "
+                "the application gate was not enabled by this operation."
+            )
+        self.client._guarded_request(
+            "PATCH",
+            f"/api/applications/{app['id']}",
+            json={"appLevelAccessControlEnabled": True},
+        )
+        verified_app = self.apps.get(app["id"])
+        if verified_app.get("appLevelAccessControlEnabled") is not True:
+            raise RuntimeError(
+                "Verification failed after enabling application access control."
+            )
+        return {
+            "updated": True,
+            **preview,
+            "access_control": verified_rules,
+            "application": verified_app,
+        }
 
 
 class ResourcesNamespace(Namespace):

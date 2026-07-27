@@ -219,10 +219,18 @@ class LogtoClient:
         protected = canonical_path in {"/api/sign-in-exp", "/api/account-center"} or canonical_path.startswith(
             "/api/connectors/"
         )
+        application_access_control = canonical_path.startswith("/api/applications/") and (
+            canonical_path.endswith("/access-control")
+            or (
+                isinstance(json, dict)
+                and "appLevelAccessControlEnabled" in json
+            )
+        )
+        protected = protected or application_access_control
         if method in {"POST", "PUT", "PATCH", "DELETE"} and protected and not allow_protected_write:
             raise ValueError(
                 f"Direct writes to {path} are blocked. Use the matching guarded "
-                "sign_in_exp, account_center, or email_templates namespace."
+                "configuration namespace."
             )
         url = self._base + path
         request_headers = {"Authorization": f"Bearer {self._get_token()}"}

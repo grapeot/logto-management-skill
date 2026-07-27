@@ -17,7 +17,7 @@ All tests mock `requests` via `unittest.mock`. No Logto tenant needed.
 | `test_client_errors` | `LogtoAPIError` preserves `status_code`, `code`, `message`, `body`, `url`; `code` is extracted from the Logto error payload and is `None` when absent |
 | `test_client_users` | create (success + 409 idempotent), find by email (found + missing), passwordless create, delete dry-run, delete execute, delete missing |
 | `test_client_roles` | create, list, assign (success + 409), revoke, list users of a role, bind scope to role |
-| `test_client_apps` | list with type filter; get by name and by id; create per type with redirect URIs; add/remove redirect URIs while preserving the rest |
+| `test_client_apps` | list/get secret redaction; create dry-run and execute; URI preservation; access-control dry-run, rule preservation, write verification, and enable-last ordering |
 | `test_client_sign_in_exp` | summary projection contains the fields we care about; setting MFA policy and factors; passkey sub-flags; invalid policy values rejected before any request is sent |
 | `test_client_account_center` | get; enable/disable; `set-fields` rejects values outside `Off`/`ReadOnly`/`Edit` **locally** (no request issued); WebAuthn origins replaced as a whole list |
 | `test_client_email_templates` | list summary (usage type, subject, length, hash); get one; set one; `replace_text` across selected usage types; append-html at a marker; backup → restore round-trips byte-for-byte |
@@ -31,11 +31,12 @@ All tests mock `requests` via `unittest.mock`. No Logto tenant needed.
 
 These assert the guardrails hold, independent of any particular command:
 
-1. **Dry-run never writes.** For every destructive verb, invoking it without `--execute` issues no `DELETE`/`POST`/`PATCH` — asserted by inspecting the mock's call list, not merely the return value.
+1. **Dry-run never writes.** For every destructive verb and application create/access-control replacement, invoking it without `--execute` issues no `DELETE`/`POST`/`PUT`/`PATCH` — asserted by inspecting the mock's call list, not merely the return value.
 2. **Config writes back up first.** Every write in `email-template` / `sign-in-exp` / `account-center` produces a backup artifact *before* the write request is issued; the ordering is asserted.
 3. **Read-modify-write preserves siblings.** Editing one email template and PATCHing the connector leaves the other templates byte-identical. This is the exact failure mode the guardrail exists for.
 4. **Verify-after-write.** A config write is followed by a re-read; if the re-read does not reflect the change, the command exits non-zero.
 5. **Local validation precedes the network.** Invalid enum values (account-center field permissions, MFA policy) fail before any request is issued.
+6. **Application gates enable last.** Access-control rules are written and re-read successfully before `appLevelAccessControlEnabled` is set. A mismatch leaves the enable PATCH uncalled.
 
 ## Live Integration Tests (opt-in)
 
