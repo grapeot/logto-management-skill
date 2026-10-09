@@ -187,6 +187,7 @@ logto-mgmt role assign <role> <email> | revoke <role> <email> | users <role>
 
 ```bash
 logto-mgmt user find <email> | create <email> [--name N] | delete <email>
+logto-mgmt user create <email> [--name N] [--password-file PATH | --password-env VARIABLE]
 logto-mgmt user-mfa list <email>
 logto-mgmt user-mfa delete <email> <verification-id>     # dry-run 默认
 ```

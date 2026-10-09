@@ -22,6 +22,20 @@ def _items(value: Any) -> list[dict]:
     return []
 
 
+def _redact_creation_password(value: Any, password: str | None) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _redact_creation_password(item, password)
+            for key, item in value.items()
+            if key not in {"password", "passwordDigest", "passwordAlgorithm"}
+        }
+    if isinstance(value, list):
+        return [_redact_creation_password(item, password) for item in value]
+    if isinstance(value, str) and password:
+        return value.replace(password, "[REDACTED]")
+    return value
+
+
 def _paginate(client: LogtoClient, path: str, *, params: dict | None = None) -> list[dict]:
     page = 1
     page_size = 100
@@ -126,21 +140,35 @@ class UsersNamespace(Namespace):
         result = self.client.request("GET", f"/api/users/{user_id}")
         return result if isinstance(result, dict) else {}
 
-    def create(self, email: str, name: str | None = None) -> dict:
+    def create(
+        self, email: str, name: str | None = None, *, password: str | None = None
+    ) -> dict:
         from .client import LogtoAPIError
 
+        if password is not None and (not isinstance(password, str) or not password):
+            raise ValueError("Password must be a non-empty string")
         payload: dict[str, Any] = {"primaryEmail": email}
         if name:
             payload["name"] = name
+        if password is not None:
+            payload["password"] = password
         try:
             result = self.client.request("POST", "/api/users", json=payload)
-            return result if isinstance(result, dict) else {}
+            return _redact_creation_password(result, None) if isinstance(result, dict) else {}
         except LogtoAPIError as error:
+            if password is not None:
+                # A duplicate or rejected password must not look like a successful
+                # password setup. Creation never resets an existing user's password.
+                raise LogtoAPIError(
+                    error.status_code,
+                    _redact_creation_password(error.body, password),
+                    error.url,
+                ) from None
             if error.status_code not in (400, 409, 422):
                 raise
             existing = self.find(email)
             if existing:
-                return existing
+                return _redact_creation_password(existing, None)
             raise
 
     def delete(self, email: str, *, execute: bool = False) -> dict:

@@ -141,6 +141,8 @@ Role revocation is dry-run by default.
 ```bash
 logto-mgmt user find alice@example.com
 logto-mgmt user create alice@example.com [--name Alice]
+logto-mgmt user create alice@example.com --name Alice --password-env EXAMPLE_INITIAL_PASSWORD
+logto-mgmt user create alice@example.com --name Alice --password-file /path/to/password.txt
 logto-mgmt user delete alice@example.com
 logto-mgmt user delete alice@example.com --execute
 
@@ -150,6 +152,10 @@ logto-mgmt user-mfa delete alice@example.com <verification-id> --execute
 ```
 
 Both deletion commands are dry-run by default. MFA deletion is an administrator recovery action for a user who lost an enrolled factor.
+
+User creation is an immediate write. `--password-file` and `--password-env` are mutually exclusive and keep the password value out of command arguments. Run through `op run --env-file .env -- ...`; an extra password environment variable can be an `op://` reference resolved before the command starts. Password files must be UTF-8 and single-line, with an optional trailing line terminator; leading/trailing spaces are preserved. Empty/multiline files and missing/empty environment variables fail before creation. Keep password files owner-readable and out of git.
+
+When a password is supplied, creation propagates API failures without returning existing users or resetting their passwords. Passwordless creation retains its existing-user fallback. Output excludes `password`, `passwordDigest`, and `passwordAlgorithm`, and provider error text redacts the supplied password. The Python equivalent is `client.users.create("alice@example.com", name="Alice", password=initial_password)`.
 
 ### Organizations And Diagnostics
 

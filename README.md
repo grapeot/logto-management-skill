@@ -46,17 +46,35 @@ doctor           Diagnose credentials, tenant ID, and Management API access
 
 Run `logto-mgmt <group> --help` for full arguments. The canonical agent reference is [`skills/skill.md`](skills/skill.md).
 
+## Create A User With An Initial Password
+
+Users can be created with an initial password using `--password-file` or `--password-env` in the CLI, or the keyword-only `password` argument in Python. Omitting password retains passwordless creation and the existing-user fallback. With a password provided, API failures propagate instead of returning an existing user or resetting that user's password.
+
+```bash
+# EXAMPLE_INITIAL_PASSWORD can be an extra op:// reference in .env.
+op run --env-file .env -- logto-mgmt user create alice@example.com --name Alice --password-env EXAMPLE_INITIAL_PASSWORD
+
+# Use a single-line UTF-8 password file, owner-readable and outside git.
+op run --env-file .env -- logto-mgmt user create alice@example.com --name Alice --password-file /path/to/password.txt
+```
+
+The two password options are mutually exclusive. Empty or multiline files and missing or empty environment variables are rejected before creation. One trailing file line terminator is removed; leading and trailing spaces are preserved. User creation is an immediate write, not a dry-run. Output excludes password and digest fields, and provider error text redacts the supplied password.
+
 ## Python Library
 
 CLI groups and library namespaces mirror each other:
 
 ```python
 from logto_management_skill import LogtoClient
+import os
 
 client = LogtoClient.from_env()
 
 endpoints = client.api.search("mfa")
 user = client.users.find("alice@example.com")
+new_user = client.users.create(
+    "bob@example.net", name="Bob", password=os.environ["EXAMPLE_INITIAL_PASSWORD"]
+)
 apps = client.apps.list(type="SPA")
 preview = client.apps.delete("Example App")
 result = client.apps.delete("Example App", execute=True)

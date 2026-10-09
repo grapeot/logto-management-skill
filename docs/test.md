@@ -16,6 +16,7 @@ All tests mock `requests` via `unittest.mock`. No Logto tenant needed.
 | `test_client_request` | `request()` returns parsed JSON for dict and list bodies; returns `None` for an empty body; `raw=True` returns the `Response`; non-2xx raises |
 | `test_client_errors` | `LogtoAPIError` preserves `status_code`, `code`, `message`, `body`, `url`; `code` is extracted from the Logto error payload and is `None` when absent |
 | `test_client_users` | create (success + 409 idempotent), find by email (found + missing), passwordless create, delete dry-run, delete execute, delete missing |
+| `test_user_creation` | Optional password payload; credential output redaction; password creation failure without existing-user fallback; passwordless compatibility; file/env input validation and mutual exclusion |
 | `test_client_roles` | create, list, assign (success + 409), revoke, list users of a role, bind scope to role |
 | `test_client_apps` | list/get secret redaction; create dry-run and execute; URI preservation; access-control dry-run, rule preservation, write verification, and enable-last ordering |
 | `test_client_sign_in_exp` | summary projection contains the fields we care about; setting MFA policy and factors; passkey sub-flags; invalid policy values rejected before any request is sent |
