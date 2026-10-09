@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### 2026-10-09
+
+- Added mutually exclusive `--password-file` and `--password-env` options to `user create` and a keyword-only `password` argument to `client.users.create`, validating single-line UTF-8 files and non-empty environment variables before creation.
+- Implemented password submission via `POST /api/users` with structured error propagation, output field suppression (`password`, `passwordDigest`, `passwordAlgorithm`), secret redaction in provider error messages, and offline mocked regression tests. Password creation never falls back to an existing user or resets a password.
+
 ### 2026-07-27
 
 - Added guarded application access-control get/set-role commands with full dry-run payloads, non-role rule preservation, verification, and enable-last ordering.

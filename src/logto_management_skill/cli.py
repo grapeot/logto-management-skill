@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import shlex
 import sys
@@ -70,6 +71,23 @@ def _json_input(args: argparse.Namespace) -> Any:
     if getattr(args, "json_text", None):
         return json.loads(args.json_text)
     return None
+
+
+def _creation_password(args: argparse.Namespace) -> str | None:
+    if args.password_file is not None:
+        # Remove one line terminator, not whitespace that may belong to the password.
+        password = Path(args.password_file).read_text(encoding="utf-8").removesuffix("\n")
+        if "\n" in password or "\r" in password:
+            raise ValueError("Password file must contain a single line")
+    elif args.password_env is not None:
+        password = os.environ.get(args.password_env)
+        if password is None:
+            raise ValueError("Password environment variable is not set")
+    else:
+        return None
+    if not password:
+        raise ValueError("Password must be non-empty")
+    return password
 
 
 def _dry_write(action: str, command: str, affected: Any = None) -> dict:
@@ -252,6 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
     user_create = user_sub.add_parser("create")
     user_create.add_argument("email")
     user_create.add_argument("--name", "-n")
+    user_password = user_create.add_mutually_exclusive_group()
+    user_password.add_argument("--password-file", help="Read the initial password from a UTF-8 single-line file")
+    user_password.add_argument("--password-env", help="Read the initial password from this environment variable")
     user_delete = user_sub.add_parser("delete")
     user_delete.add_argument("email")
     _add_execute(user_delete)
@@ -407,7 +428,10 @@ def _dispatch(client: LogtoClient, args: argparse.Namespace) -> Any:
         if args.user_command == "find":
             return client.users.find(args.email) or {"found": False}
         if args.user_command == "create":
-            return client.users.create(args.email, args.name)
+            password = _creation_password(args)
+            if password is None:
+                return client.users.create(args.email, args.name)
+            return client.users.create(args.email, args.name, password=password)
         return client.users.delete(args.email, execute=args.execute)
 
     if args.command == "user-mfa":
